@@ -188,7 +188,10 @@ def translate_description(
         # Traduire avec DeepL
         translated_text = _translate_with_deepl(request.description_fr, "EN")
         if not translated_text:
-            raise HTTPException(status_code=500, detail="Translation failed")
+            raise HTTPException(
+                status_code=500,
+                detail="DeepL translation failed (check DEEPL_API_KEY / DEEPL_API_URL)",
+            )
         
         # Sauvegarder en DB dans translations.en.description
         oid = ObjectId(request.artwork_id)
@@ -229,7 +232,10 @@ def translate_title(
 
         translated_text = _translate_with_deepl(request.title_fr, "EN")
         if not translated_text:
-            raise HTTPException(status_code=500, detail="Translation failed")
+            raise HTTPException(
+                status_code=500,
+                detail="DeepL translation failed (check DEEPL_API_KEY / DEEPL_API_URL)",
+            )
 
         oid = ObjectId(request.artwork_id)
         artworks_collection.update_one(

@@ -31,6 +31,10 @@ class UpdateTypeRequest(BaseModel):
     display_name_en: str | None = None
 
 
+class TranslateLabelRequest(BaseModel):
+    text_fr: str
+
+
 @router.get("/", response_model=List[str])
 def get_artwork_types():
     """
@@ -112,6 +116,20 @@ def translate_type_display_en(type_name: str, _: bool = Depends(require_admin_au
         raise HTTPException(status_code=500, detail="Erreur lors de la mise à jour du type")
 
     return {"success": True, "type": existing.get('name', decoded_name), "display_name_en": translated}
+
+
+@router.post("/translate-label")
+def translate_type_label(request: TranslateLabelRequest, _: bool = Depends(require_admin_auth)):
+    """Translate an arbitrary FR label to EN (used by admin UI before creating a type)."""
+    text_fr = request.text_fr.strip() if request.text_fr else ""
+    if not text_fr:
+        raise HTTPException(status_code=400, detail="Le texte FR ne peut pas être vide")
+
+    translated = _translate_with_deepl(text_fr, "EN")
+    if not translated:
+        raise HTTPException(status_code=500, detail="Translation failed")
+
+    return {"text_en": translated}
 
 
 @router.delete("/{type_name}")

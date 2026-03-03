@@ -6,35 +6,96 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
-DEEPL_API_URL = "https://api-free.deepl.com/v2/translate"
+
+def _get_deepl_api_key() -> Optional[str]:
+    return os.getenv("DEEPL_API_KEY") or os.getenv("DEEPL_AUTH_KEY")
+
+
+def _build_deepl_translate_url() -> str:
+    """Resolve DeepL translate URL.
+
+    Priority:
+    1) DEEPL_API_URL (full URL or base URL)
+    2) DEEPL_PLAN in {free, pro}
+    3) infer from key suffix ':fx' (free)
+    """
+    override = os.getenv("DEEPL_API_URL")
+    if override:
+        override = override.strip()
+        if override.endswith("/v2/translate"):
+            return override
+        return override.rstrip("/") + "/v2/translate"
+
+    plan = (os.getenv("DEEPL_PLAN") or "").strip().lower()
+    if plan == "pro":
+        return "https://api.deepl.com/v2/translate"
+    if plan == "free":
+        return "https://api-free.deepl.com/v2/translate"
+
+    key = _get_deepl_api_key() or ""
+    if key.endswith(":fx"):
+        return "https://api-free.deepl.com/v2/translate"
+    return "https://api.deepl.com/v2/translate"
+
+
+def _alternate_deepl_translate_url(url: str) -> str:
+    if "api-free.deepl.com" in url:
+        return url.replace("api-free.deepl.com", "api.deepl.com")
+    if "api.deepl.com" in url:
+        return url.replace("api.deepl.com", "api-free.deepl.com")
+    return url
 
 def _translate_with_deepl(text: str, target_lang: str = "EN") -> Optional[str]:
     """
     Translate text using DeepL API.
     Returns the translated text or None on failure.
     """
-    if not text or not DEEPL_API_KEY:
+    api_key = _get_deepl_api_key()
+    if not text:
+        return None
+    if not api_key:
+        logger.warning("DeepL translation skipped: DEEPL_API_KEY is missing")
         return None
     
     try:
-        response = requests.post(
-            DEEPL_API_URL,
-            data={
-                "auth_key": DEEPL_API_KEY,
-                "text": text,
-                "target_lang": target_lang.upper(),
-                "source_lang": "FR"
-            },
-            timeout=10
-        )
-        
+        url = _build_deepl_translate_url()
+
+        def _attempt(post_url: str) -> requests.Response:
+            return requests.post(
+                post_url,
+                data={
+                    "auth_key": api_key,
+                    "text": text,
+                    "target_lang": target_lang.upper(),
+                    "source_lang": "FR",
+                },
+                timeout=10,
+            )
+
+        response = _attempt(url)
+
+        # Common misconfig: using a Pro key against the Free endpoint (or vice-versa).
+        # If user didn't override the URL, try the alternate endpoint on 403.
+        if (
+            response.status_code == 403
+            and not os.getenv("DEEPL_API_URL")
+            and ("api-free.deepl.com" in url or "api.deepl.com" in url)
+        ):
+            alt = _alternate_deepl_translate_url(url)
+            if alt != url:
+                logger.warning("DeepL 403 on %s; retrying on %s", url, alt)
+                response = _attempt(alt)
+
         if response.status_code == 200:
             result = response.json()
             if result.get("translations") and len(result["translations"]) > 0:
                 return result["translations"][0]["text"]
-        else:
-            logger.error(f"DeepL API error: {response.status_code} - {response.text}")
+
+        logger.error(
+            "DeepL API error: %s - %s",
+            response.status_code,
+            response.text[:500],
+        )
     except Exception as exc:
         logger.error(f"DeepL translation failed: {exc}")
     
