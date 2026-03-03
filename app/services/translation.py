@@ -45,6 +45,23 @@ def _alternate_deepl_translate_url(url: str) -> str:
         return url.replace("api.deepl.com", "api-free.deepl.com")
     return url
 
+
+def _suggested_deepl_translate_url_from_response(response_text: str) -> Optional[str]:
+    """Extract the correct DeepL endpoint from DeepL's 'Wrong endpoint' message."""
+    if not response_text:
+        return None
+
+    lower = response_text.lower()
+    if "wrong endpoint" not in lower or "use https://" not in lower:
+        return None
+
+    if "use https://api-free.deepl.com" in lower:
+        return "https://api-free.deepl.com/v2/translate"
+    if "use https://api.deepl.com" in lower:
+        return "https://api.deepl.com/v2/translate"
+
+    return None
+
 def _translate_with_deepl(text: str, target_lang: str = "EN") -> Optional[str]:
     """
     Translate text using DeepL API.
@@ -74,6 +91,14 @@ def _translate_with_deepl(text: str, target_lang: str = "EN") -> Optional[str]:
 
         response = _attempt(url)
 
+        # DeepL sometimes returns a very explicit hint when the endpoint is wrong.
+        # In that case, prefer the suggested endpoint even if DEEPL_API_URL was set.
+        if response.status_code == 403:
+            suggested = _suggested_deepl_translate_url_from_response(response.text)
+            if suggested and suggested != url:
+                logger.warning("DeepL suggests endpoint %s; retrying", suggested)
+                response = _attempt(suggested)
+
         # Common misconfig: using a Pro key against the Free endpoint (or vice-versa).
         # If user didn't override the URL, try the alternate endpoint on 403.
         if (
@@ -92,7 +117,8 @@ def _translate_with_deepl(text: str, target_lang: str = "EN") -> Optional[str]:
                 return result["translations"][0]["text"]
 
         logger.error(
-            "DeepL API error: %s - %s",
+            "DeepL API error on %s: %s - %s",
+            url,
             response.status_code,
             response.text[:500],
         )
