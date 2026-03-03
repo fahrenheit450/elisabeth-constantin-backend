@@ -42,8 +42,6 @@ def serialize_artwork(raw: dict, lang: str = "fr") -> dict:
     if lang != "fr":
         # Apply stored translations for supported fields
         if isinstance(lang_translations, dict):
-            if lang_translations.get("title"):
-                doc["title"] = lang_translations["title"]
             if lang_translations.get("description"):
                 doc["description"] = lang_translations["description"]
 
