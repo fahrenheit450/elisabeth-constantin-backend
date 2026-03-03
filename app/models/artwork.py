@@ -33,6 +33,16 @@ class TranslateDescriptionRequest(BaseModel):
     artwork_id: str
     description_fr: str
 
+
+class TranslateTitleRequest(BaseModel):
+    artwork_id: str
+    title_fr: str
+
 class UpdateDescriptionRequest(BaseModel):
     artwork_id: str
     description_en: str
+
+
+class UpdateTitleRequest(BaseModel):
+    artwork_id: str
+    title_en: str

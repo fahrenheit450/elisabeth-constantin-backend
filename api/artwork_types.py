@@ -14,18 +14,21 @@ from pydantic import BaseModel
 from api.auth_admin import require_admin_auth
 from app.crud import artworks as artworks_crud
 from app.crud import artwork_types as types_crud
+from app.services.translation import _translate_with_deepl
 
 router = APIRouter()
 
 
 class CreateTypeRequest(BaseModel):
     name: str
-    display_name: str | None = None
+    display_name_fr: str | None = None
+    display_name_en: str | None = None
 
 
 class UpdateTypeRequest(BaseModel):
     newType: str
-    display_name: str | None = None
+    display_name_fr: str | None = None
+    display_name_en: str | None = None
 
 
 @router.get("/", response_model=List[str])
@@ -62,7 +65,8 @@ def create_artwork_type(request: CreateTypeRequest, _: bool = Depends(require_ad
     try:
         type_id = types_crud.create_artwork_type(
             name=type_name,
-            display_name=request.display_name
+            display_name_fr=request.display_name_fr,
+            display_name_en=request.display_name_en
         )
         return {
             "message": f"Type '{type_name}' créé avec succès",
@@ -71,6 +75,43 @@ def create_artwork_type(request: CreateTypeRequest, _: bool = Depends(require_ad
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{type_name}/translate-en")
+def translate_type_display_en(type_name: str, _: bool = Depends(require_admin_auth)):
+    """Auto-translate display_name.fr -> display_name.en for an existing type."""
+    from urllib.parse import unquote_plus
+    decoded_name = type_name
+    for _ in range(2):
+        new = unquote_plus(decoded_name)
+        if new == decoded_name:
+            break
+        decoded_name = new
+
+    existing = types_crud.get_artwork_type_by_name(decoded_name, normalized=True)
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Le type '{decoded_name}' n'existe pas")
+
+    display = existing.get('display_name')
+    source_fr = None
+    if isinstance(display, dict):
+        source_fr = display.get('fr')
+    elif isinstance(display, str):
+        source_fr = display
+
+    if not source_fr:
+        source_fr = existing.get('name', decoded_name)
+
+    translated = _translate_with_deepl(source_fr, "EN")
+    if not translated:
+        raise HTTPException(status_code=500, detail="Translation failed")
+
+    type_id = str(existing['_id'])
+    ok = types_crud.update_artwork_type(type_id=type_id, display_name_en=translated)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Erreur lors de la mise à jour du type")
+
+    return {"success": True, "type": existing.get('name', decoded_name), "display_name_en": translated}
 
 
 @router.delete("/{type_name}")
@@ -177,7 +218,8 @@ def update_artwork_type_endpoint(
         success = types_crud.update_artwork_type(
             type_id=type_id,
             name=new_type,
-            display_name=request.display_name
+            display_name_fr=request.display_name_fr,
+            display_name_en=request.display_name_en
         )
 
         if not success:

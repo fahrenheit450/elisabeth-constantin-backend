@@ -6,7 +6,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-DEEPL_API_KEY = os.getenv("DEEPL_API_KEY", "ed6da66b-e4c8-4073-9b5b-b1c25a9dea60:fx")
+DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
 DEEPL_API_URL = "https://api-free.deepl.com/v2/translate"
 
 def _translate_with_deepl(text: str, target_lang: str = "EN") -> Optional[str]:
@@ -58,7 +58,9 @@ def _translate_payload(payload: Dict[str, str], target_language: str) -> Dict[st
             continue
         
         # Skip description and status fields - description is handled manually, status is an enum
-        if key in ["description", "status"]:
+        # Also skip `type` because artwork types are managed separately in the
+        # artwork_types collection and should not be auto-translated here.
+        if key in ["description", "status", "type"]:
             continue
             
         result = _translate_with_deepl(value, target_lang_code)

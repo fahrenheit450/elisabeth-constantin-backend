@@ -78,7 +78,7 @@ def get_artwork_type_by_name(name: str, normalized: bool = True) -> Optional[dic
         return collection.find_one({"name": name})
 
 
-def create_artwork_type(name: str, display_name: Optional[str] = None) -> str:
+def create_artwork_type(name: str, display_name_fr: Optional[str] = None, display_name_en: Optional[str] = None) -> str:
     """
     Crée un nouveau type d'œuvre.
     
@@ -103,9 +103,26 @@ def create_artwork_type(name: str, display_name: Optional[str] = None) -> str:
         raise ValueError(f"Le type '{name}' existe déjà (ou un équivalent normalisé)")
     
     # Préparer le document
+    # Supporter display_name en FR/EN. Si l'admin passe une seule chaîne (compat),
+    # elle sera utilisée pour FR.
+    display_fr = None
+    display_en = None
+    if display_name_fr:
+        display_fr = display_name_fr.strip()
+    if display_name_en:
+        display_en = display_name_en.strip()
+
+    if not display_fr and display_name_en and not display_fr:
+        display_fr = display_name_en
+
+    if not display_fr:
+        display_fr = name.capitalize()
+    if not display_en:
+        display_en = display_fr
+
     doc = {
         "name": name,
-        "display_name": display_name.strip() if display_name else name.capitalize()
+        "display_name": {"fr": display_fr, "en": display_en}
     }
     
     collection = get_database_collection()
@@ -113,7 +130,7 @@ def create_artwork_type(name: str, display_name: Optional[str] = None) -> str:
     return str(result.inserted_id)
 
 
-def update_artwork_type(type_id: str, name: Optional[str] = None, display_name: Optional[str] = None) -> bool:
+def update_artwork_type(type_id: str, name: Optional[str] = None, display_name_fr: Optional[str] = None, display_name_en: Optional[str] = None) -> bool:
     """
     Met à jour un type d'œuvre.
     
@@ -155,8 +172,25 @@ def update_artwork_type(type_id: str, name: Optional[str] = None, display_name: 
         
         update_fields["name"] = name
     
-    if display_name is not None:
-        update_fields["display_name"] = display_name.strip() if display_name else ""
+    # Support bilingual display names
+    if display_name_fr is not None or display_name_en is not None:
+        # Keep existing or compute defaults
+        existing_disp = existing_type.get('display_name')
+        fr = None
+        en = None
+        if isinstance(existing_disp, dict):
+            fr = existing_disp.get('fr')
+            en = existing_disp.get('en')
+        elif isinstance(existing_disp, str):
+            fr = existing_disp
+            en = existing_disp
+
+        if display_name_fr is not None:
+            fr = display_name_fr.strip() if display_name_fr else ""
+        if display_name_en is not None:
+            en = display_name_en.strip() if display_name_en else ""
+
+        update_fields["display_name"] = {"fr": fr or name or existing_type.get('name', ''), "en": en or fr or name or existing_type.get('name', '')}
     
     if not update_fields:
         return False

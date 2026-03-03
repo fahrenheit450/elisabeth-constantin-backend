@@ -1,13 +1,21 @@
 from fastapi import APIRouter, HTTPException, Request, BackgroundTasks, Query
 from typing import List
-from app.models.artwork import Artwork, ArtworkInDB, UpdateTypeRequest, TranslateDescriptionRequest, UpdateDescriptionRequest
+from app.models.artwork import (
+    Artwork,
+    ArtworkInDB,
+    UpdateTypeRequest,
+    TranslateDescriptionRequest,
+    UpdateDescriptionRequest,
+    TranslateTitleRequest,
+    UpdateTitleRequest,
+)
 from app.crud import artworks
 from app.utils.string_utils import normalize_string
 from fastapi import Depends
 from api.auth_admin import require_admin_auth
 from app.services.email.notifications import notify_new_artwork, notify_removed_artwork
 from app.database import artworks_collection
-from app.services.translation import apply_dynamic_translations, _translate_with_deepl
+from app.services.translation import _translate_with_deepl
 from bson import ObjectId
 import logging
 
@@ -15,7 +23,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 SUPPORTED_LANGUAGES = {"fr", "en"}
-TRANSLATABLE_ARTWORK_FIELDS = ("title", "type")
 
 
 def resolve_language(lang: str) -> str:
@@ -28,27 +35,31 @@ def serialize_artwork(raw: dict, lang: str = "fr") -> dict:
     """
     Convertit le BSON ObjectId en str pour la sérialisation JSON.
     """
-    translated_doc = apply_dynamic_translations(raw, TRANSLATABLE_ARTWORK_FIELDS, lang, artworks_collection)
-    
-    # Handle description manually: use translations.en.description if lang=en
-    description = translated_doc.get("description", "")
-    if lang == "en":
-        translations = translated_doc.get("translations", {})
-        en_translations = translations.get("en", {})
-        if en_translations and "description" in en_translations:
-            description = en_translations["description"]
-    
+    # IMPORTANT: No automatic translation on read.
+    # We only *use stored translations* (manual or via explicit admin translate endpoints).
+    doc = dict(raw)
+    translations = doc.get("translations", {}) or {}
+    lang_translations = translations.get(lang, {}) or {}
+
+    if lang != "fr":
+        # Apply stored translations for supported fields
+        if isinstance(lang_translations, dict):
+            if lang_translations.get("title"):
+                doc["title"] = lang_translations["title"]
+            if lang_translations.get("description"):
+                doc["description"] = lang_translations["description"]
+
     result = {
-        **translated_doc,
-        "_id": str(translated_doc["_id"]),
-        "description": description,
-        "other_images": translated_doc.get("other_images", []),
-        "status": translated_doc.get("status", "Disponible")
+        **doc,
+        "_id": str(doc["_id"]),
+        "description": doc.get("description", "") or "",
+        "other_images": doc.get("other_images", []),
+        "status": doc.get("status", "Disponible"),
     }
 
     # Générer une vignette si l'image principale est hébergée sur Cloudinary
     try:
-        main_image = translated_doc.get('main_image', '') or ''
+        main_image = doc.get('main_image', '') or ''
         if main_image and 'res.cloudinary.com' in main_image and '/upload/' in main_image:
             parts = main_image.split('/upload/')
             prefix, suffix = parts[0], parts[1]
@@ -56,9 +67,9 @@ def serialize_artwork(raw: dict, lang: str = "fr") -> dict:
             thumbnail = prefix + '/' + thumb_transform + suffix
             result['thumbnail'] = thumbnail
         else:
-            result['thumbnail'] = translated_doc.get('thumbnail') if translated_doc.get('thumbnail') else None
+            result['thumbnail'] = doc.get('thumbnail') if doc.get('thumbnail') else None
     except Exception:
-        result['thumbnail'] = translated_doc.get('thumbnail') if translated_doc.get('thumbnail') else None
+        result['thumbnail'] = doc.get('thumbnail') if doc.get('thumbnail') else None
     return result
 
 @router.get("/", response_model=List[ArtworkInDB])
@@ -201,6 +212,39 @@ def translate_description(
         logger.error(f"Translation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.post("/translate-title")
+def translate_title(
+    request: TranslateTitleRequest,
+    _: bool = Depends(require_admin_auth)
+):
+    """
+    Traduit le titre d'une œuvre en anglais via DeepL et le stocke en DB.
+    Si une traduction existe déjà, elle est écrasée.
+    """
+    try:
+        artwork = artworks.get_artwork_by_id(request.artwork_id)
+        if not artwork:
+            raise HTTPException(status_code=404, detail="Artwork not found")
+
+        translated_text = _translate_with_deepl(request.title_fr, "EN")
+        if not translated_text:
+            raise HTTPException(status_code=500, detail="Translation failed")
+
+        oid = ObjectId(request.artwork_id)
+        artworks_collection.update_one(
+            {"_id": oid},
+            {"$set": {"translations.en.title": translated_text}},
+        )
+
+        logger.info(f"Translated title for artwork {request.artwork_id}")
+        return {"success": True, "title_en": translated_text}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Title translation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.put("/update-description-en")
 def update_description_en(
     request: UpdateDescriptionRequest,
@@ -235,6 +279,32 @@ def update_description_en(
         raise
     except Exception as e:
         logger.error(f"Update description error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/update-title-en")
+def update_title_en(
+    request: UpdateTitleRequest,
+    _: bool = Depends(require_admin_auth)
+):
+    """Met à jour manuellement le titre anglais d'une œuvre."""
+    try:
+        artwork = artworks.get_artwork_by_id(request.artwork_id)
+        if not artwork:
+            raise HTTPException(status_code=404, detail="Artwork not found")
+
+        oid = ObjectId(request.artwork_id)
+        artworks_collection.update_one(
+            {"_id": oid},
+            {"$set": {"translations.en.title": request.title_en}},
+        )
+
+        logger.info(f"Updated EN title for artwork {request.artwork_id}")
+        return {"success": True, "title_en": request.title_en}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update title error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{artwork_id}", response_model=ArtworkInDB)

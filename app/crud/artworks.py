@@ -3,7 +3,9 @@ from app.utils.string_utils import normalize_string
 from bson.objectid import ObjectId
 from app.database import artworks_collection
 
-TRANSLATABLE_FIELDS = {"title", "description", "type", "status"}
+# Fields for which EN stored translations should be invalidated when FR source changes.
+# NOTE: `type` is a canonical key managed via artwork_types and should not be translated.
+TRANSLATABLE_FIELDS = {"title", "description", "status"}
 
 def get_all_artworks() -> List[dict]:
     """
