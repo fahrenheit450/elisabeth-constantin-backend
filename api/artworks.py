@@ -6,8 +6,6 @@ from app.models.artwork import (
     UpdateTypeRequest,
     TranslateDescriptionRequest,
     UpdateDescriptionRequest,
-    TranslateTitleRequest,
-    UpdateTitleRequest,
 )
 from app.crud import artworks
 from app.utils.string_utils import normalize_string
@@ -216,41 +214,6 @@ def translate_description(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/translate-title")
-def translate_title(
-    request: TranslateTitleRequest,
-    _: bool = Depends(require_admin_auth)
-):
-    """
-    Traduit le titre d'une œuvre en anglais via DeepL et le stocke en DB.
-    Si une traduction existe déjà, elle est écrasée.
-    """
-    try:
-        artwork = artworks.get_artwork_by_id(request.artwork_id)
-        if not artwork:
-            raise HTTPException(status_code=404, detail="Artwork not found")
-
-        translated_text = _translate_with_deepl(request.title_fr, "EN")
-        if not translated_text:
-            raise HTTPException(
-                status_code=500,
-                detail="DeepL translation failed (check DEEPL_API_KEY / DEEPL_API_URL)",
-            )
-
-        oid = ObjectId(request.artwork_id)
-        artworks_collection.update_one(
-            {"_id": oid},
-            {"$set": {"translations.en.title": translated_text}},
-        )
-
-        logger.info(f"Translated title for artwork {request.artwork_id}")
-        return {"success": True, "title_en": translated_text}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Title translation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 @router.put("/update-description-en")
 def update_description_en(
     request: UpdateDescriptionRequest,
@@ -287,31 +250,6 @@ def update_description_en(
         logger.error(f"Update description error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.put("/update-title-en")
-def update_title_en(
-    request: UpdateTitleRequest,
-    _: bool = Depends(require_admin_auth)
-):
-    """Met à jour manuellement le titre anglais d'une œuvre."""
-    try:
-        artwork = artworks.get_artwork_by_id(request.artwork_id)
-        if not artwork:
-            raise HTTPException(status_code=404, detail="Artwork not found")
-
-        oid = ObjectId(request.artwork_id)
-        artworks_collection.update_one(
-            {"_id": oid},
-            {"$set": {"translations.en.title": request.title_en}},
-        )
-
-        logger.info(f"Updated EN title for artwork {request.artwork_id}")
-        return {"success": True, "title_en": request.title_en}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Update title error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{artwork_id}", response_model=ArtworkInDB)
 def update_artwork(artwork_id: str, artwork: Artwork, _: bool = Depends(require_admin_auth), request: Request = None):
