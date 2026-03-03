@@ -8,7 +8,16 @@ logger = logging.getLogger(__name__)
 
 
 def _get_deepl_api_key() -> Optional[str]:
-    return os.getenv("DEEPL_API_KEY") or os.getenv("DEEPL_AUTH_KEY")
+    key = os.getenv("DEEPL_API_KEY") or os.getenv("DEEPL_AUTH_KEY")
+    if not key:
+        return None
+    return key.strip()
+
+
+def _deepl_auth_headers(api_key: str) -> dict:
+    # DeepL header-based auth (required since Nov 2025 breaking change)
+    # Docs: https://developers.deepl.com/docs/getting-started/auth
+    return {"Authorization": f"DeepL-Auth-Key {api_key}"}
 
 
 def _build_deepl_translate_url() -> str:
@@ -80,8 +89,8 @@ def _translate_with_deepl(text: str, target_lang: str = "EN") -> Optional[str]:
         def _attempt(post_url: str) -> requests.Response:
             return requests.post(
                 post_url,
+                headers=_deepl_auth_headers(api_key),
                 data={
-                    "auth_key": api_key,
                     "text": text,
                     "target_lang": target_lang.upper(),
                     "source_lang": "FR",
