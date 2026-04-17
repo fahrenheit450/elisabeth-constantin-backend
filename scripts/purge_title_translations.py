@@ -5,7 +5,7 @@ Goal:
 - Remove any previously stored `translations.en.title` so the DB no longer carries stale EN titles.
 
 Usage:
-  MONGO_URI='mongodb+srv://...' MONGO_DB='yourdb' python3 scripts/purge_title_translations.py
+  MONGO_URI='mongodb+srv://admin:JNTsv4G7KKYvo9Cr@sitemaman.likphvf.mongodb.net/?retryWrites=true&w=majority&appName=SiteMaman' MONGO_DB='site_maman' python3 scripts/purge_title_translations.py
 
 Notes:
 - Safe: does NOT touch the root `title` field.
