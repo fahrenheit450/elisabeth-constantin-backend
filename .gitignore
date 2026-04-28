@@ -138,7 +138,5 @@ celerybeat.pid
 # Pyre type checker
 .pyre/
 
-#Docker
-docker-compose.yml
-Dockerfile
-.dockerignore
+# Docker artifacts (Dockerfile, .dockerignore) are tracked alongside the code.
+# docker-compose.yml lives at the parent dir for local-dev orchestration.

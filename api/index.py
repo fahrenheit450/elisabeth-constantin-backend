@@ -69,6 +69,11 @@ except ImportError:
     from .webhook_mailerlite import router as webhook_router
     app.include_router(webhook_router, prefix="/api/webhooks/mailerlite", tags=["webhooks"])
 
+@app.get("/health")
+async def health():
+    """Liveness probe: ne dépend d'aucune ressource externe (Mongo, Stripe, MailerLite)."""
+    return {"status": "ok"}
+
 @app.get("/")
 async def root():
     return {
